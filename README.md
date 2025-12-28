@@ -25,7 +25,8 @@ _⚠️ Not adhering to these submission rules and the [**Analytics Cup Rules**]
 #### Introduction
 
 #### Methods
-[Pitch Figures_OBE.pdf](https://github.com/user-attachments/files/24360810/Pitch.Figures_OBE.pdf)
+
+
 
 #### Results
 
