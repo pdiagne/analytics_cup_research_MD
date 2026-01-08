@@ -25,15 +25,15 @@ _⚠️ Not adhering to these submission rules and the [**Analytics Cup Rules**]
 #### Introduction
 This study develops a machine learning framework to quantify the offensive value of off-ball movements in soccer by predicting expected threat (xThreat) from spatiotemporal tracking data. The feature set is derived from geometric relationships between attacking players, defenders, and goal positions during off-ball runs (OBR), passing options (PO), and on ball engagement (OBE). The figure below shows the geometric relationships for each event. 
 
-[Pitch Figures_All.pdf](https://github.com/user-attachments/files/24360909/Pitch.Figures_All.pdf)
+[Pitch Figures_All.pdf](https://github.com/user-attachments/files/24492233/Pitch.Figures_All.pdf)
 
 #### Methods
-Data used in the analysis includes tracking and event data from 10 professional matches using SkillCorner's open dataset. The 16 engineered features extracted from this data capture the three key tactical situations: OBR (distance and angular relationships between attackers, defenders, and goal), PO (geometric configurations between ball carrier and potential receivers), and OBE (pressure situations on the ball carrier). An XGBoost regression model with hyperparameter tuning (n_estimators=600, max_depth=10, learning_rate=0.01) using 5-fold cross-validation was used to forecast xthreat. The model was trained on 9 matches and tested on a held-out match.
+Data used in the analysis includes tracking and event data from 10 professional matches using SkillCorner's open dataset. The 16 engineered features extracted from this data capture the three key tactical situations: OBR (distance and angular relationships between attackers, defenders, and goal), PO (geometric configurations between ball carrier and potential receivers), and OBE (pressure situations on the ball carrier). The OBR and PO tactical situations are applied to all other attacking players in addition to the player targeted for the pass (excluding the goal keeper). All calculations are based only on the end frame of the event. An XGBoost regression model with hyperparameter tuning (n_estimators=600, max_depth=10, learning_rate=0.01) using 5-fold cross-validation was used to forecast xthreat. The model was trained on 9 matches and tested on a held-out match.
 
 #### Results
 Feature importance analysis identified the most predictive spatial relationships for xThreat generation. The figure below includes the training and testing results of match_id  = 2017461. The file Pitch Figures and Results Figures.pdf includes results for all 10 matches.
 
-[Results Sample.pdf](https://github.com/user-attachments/files/24360914/Results.Sample.pdf)
+[Results Sample.pdf](https://github.com/user-attachments/files/24492238/Results.Sample.pdf)
 
 #### Conclusion
 The model moderately quantifies the offensive value of off-ball movements using interpretable geometric features and machine learning. The model's modest performance across multiple matches suggests that spatiotemporal relationships between players may predict threat generation. This approach could provide coaches and analysts with actionable insights into how specific movement patterns create scoring opportunities. Future work could 
