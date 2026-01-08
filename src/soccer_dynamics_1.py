@@ -39,7 +39,9 @@ def train_xgb_model(X, Y, M_train, test_size=0.2, random_state=42):
     )
 
     # Feature names
-    feature_names = list(M_train.columns[1:-1])
+    target_cols = ['xthreat']  # or detect automatically
+    feature_cols = [col for col in M_train.columns if col not in target_cols]
+    feature_names = feature_cols
 
     # Base model (for initial training and CV)
     xgb_model = xgb.XGBRegressor(
@@ -284,6 +286,233 @@ def calculate_metrics(frame_type, frame_num, Lf_OBR, Lf_PO, Lf_OBE,po_obr,tracki
     M['match_id'] = match_id
 
     return M
+
+
+def calculate_metrics_extended(frame_type, frame_num, Lf_OBR, Lf_PO, Lf_OBE, po_obr, tracking, match_id,
+                               possession_player_id, a_player_id, event_id=None):
+    """
+    Calculate metrics for the primary teammate (from po_obr).
+    This is essentially your original calculate_metrics function with minor modifications.
+    """
+    # ************
+    # Off Ball Run calcs
+    # ************
+
+    Frame = frame_num
+
+    # OBR attacker and PO attacker
+    ind = (tracking['frame'] == Frame) & (tracking['player_id'] == a_player_id)
+    x_A = float(tracking.loc[ind, 'x'].iloc[0])
+    y_A = float(tracking.loc[ind, 'y'].iloc[0])
+    A = Point(x_A, y_A)  # attacker (off-ball)
+
+    # Ball carrier for OBR
+    ind = (tracking['frame'] == Frame) & (tracking['player_id'] == possession_player_id)
+    x_B = float(tracking.loc[ind, 'x'].iloc[0])
+    y_B = float(tracking.loc[ind, 'y'].iloc[0])
+    B = Point(x_B, y_B)  # ball carrier
+
+    # Find the defender that is closest to La
+    d_player_ids = list(set(tracking['player_id'][(tracking['frame'] == Frame) & (tracking['possession_flag'] == 'OOP')
+                                                  & (tracking['is_gk'] == False)]))
+    ind = (tracking['frame'] == Frame) & tracking['player_id'].isin(d_player_ids)
+
+    # Create defenders list dynamically from the coordinates
+    coords = tracking.loc[ind, ['x', 'y']].to_numpy()
+    defenders = [Point(row[0], row[1]) for row in coords]
+
+    # Goal center (attacking right to left)
+    G = Point(-52.5, 0)
+
+    # da: distance from attacker A to goal G
+    da = distance(A, G)
+
+    # Choose La (distance from A along line AG) as needed.
+    La = Lf_OBR * da
+
+    # Point P on line from A to G at distance La from A
+    P = point_on_segment(A, G, La)
+
+    # Find closest defender to P
+    D_closest, dd, closest_idx = find_closest_defender(defenders, P)
+    x_D_closest = D_closest.x
+    y_D_closest = D_closest.y
+
+    # db: distance from ball carrier B to point P
+    db = distance(B, P)
+
+    # Θa: direction from A to G
+    Theta_a = angle_deg(A, G)
+
+    # Θd: direction from closest defender to P
+    Theta_d = angle_deg(D_closest, P)
+
+    # Θb: direction from B to P
+    Theta_b = angle_deg(B, P)
+
+    # Rename measures
+    Theta_a_OBR = Theta_a
+    Theta_d_OBR = Theta_d
+    Theta_b_OBR = Theta_b
+    da_OBR = da
+    dd_OBR = dd
+    db_OBR = db
+
+    # ************
+    # Passing option
+    # ************
+
+    # db: distance from ball carrier B to A
+    db = distance(B, A)
+
+    # Choose Lb (distance from B along line BA) as needed.
+    Lb = Lf_PO * db
+
+    # Point P on line from B to A at distance Lb from B
+    P = point_on_segment(B, A, Lb)
+
+    # Find closest defender to P
+    D_closest, dd, closest_idx = find_closest_defender(defenders, P)
+
+    # Θd: direction from closest defender to P
+    Theta_d = angle_deg(D_closest, P)
+
+    # Θb: direction from B to P
+    Theta_b = angle_deg(B, P)
+
+    # Rename measures
+    Theta_d_PO = Theta_d
+    Theta_b_PO = Theta_b
+    dd_PO = dd
+    db_PO = db
+
+    # ************
+    # On ball engagement
+    # ************
+
+    # db: distance from B to G
+    db = distance(B, G)
+
+    # Choose Lb (distance from B along line BG).
+    Lb = Lf_OBE * db
+
+    # Point P on line from B to G at distance Lb from B
+    P = point_on_segment(B, G, Lb)
+
+    # Find closest defender to P
+    D_closest_prime, dd_prime, closest_idx_prime = find_closest_defender(defenders, P)
+
+    # Find closest defender to B
+    D_closest, dd, closest_idx = find_closest_defender(defenders, B)
+
+    # Θd_prime: direction from closest defender to P
+    Theta_d_prime = angle_deg(D_closest_prime, P)
+
+    # Θd: direction from closest defender to B
+    Theta_d = angle_deg(D_closest, B)
+
+    # Θb: direction from B to G
+    Theta_b = angle_deg(B, G)
+
+    # Rename measures
+    Theta_d_OBE = Theta_d
+    Theta_d_prime_OBE = Theta_d_prime
+    Theta_b_OBE = Theta_b
+    dd_OBE = dd
+    dd_prime_OBE = dd_prime
+    db_OBE = db
+
+    # ************
+    # Create regression X and Y
+    # ************
+
+    # Aggregate OBR, PO and OBE calcs
+    X = [Theta_a_OBR, Theta_d_OBR, Theta_b_OBR, da_OBR, dd_OBR, db_OBR,
+         Theta_d_PO, Theta_b_PO, dd_PO, db_PO,
+         Theta_d_OBE, Theta_d_prime_OBE, Theta_b_OBE, dd_OBE, dd_prime_OBE, db_OBE]
+
+    ind = (po_obr[frame_type] == Frame) & (po_obr['player_id'] == a_player_id)
+    Y = float(po_obr.loc[ind, 'xthreat'].iloc[0])  # Single column, first match
+
+    # Convert to dataframe
+    columns = ['xthreat', 'Theta_a_OBR', 'Theta_d_OBR', 'Theta_b_OBR',
+               'da_OBR', 'dd_OBR', 'db_OBR', 'Theta_d_PO', 'Theta_b_PO', 'dd_PO', 'db_PO',
+               'Theta_d_OBE', 'Theta_d_prime_OBE', 'Theta_b_OBE', 'dd_OBE', 'dd_prime_OBE', 'db_OBE']
+    M = pd.DataFrame([[Y] + X], columns=columns)
+    M['match_id'] = match_id
+    M['frame'] = Frame
+    M['frame_type'] = frame_type
+    M['possession_player_id'] = possession_player_id
+    M['teammate_player_id'] = a_player_id
+
+    # Add event_id if provided
+    if event_id is not None:
+        M['event_id'] = event_id
+
+    return M
+
+def calculate_teammate_metrics(frame_num, Lf_OBR, Lf_PO, Lf_OBE, tracking, possession_player_id, teammate_id):
+    """
+    Calculate simplified metrics for additional teammates (without xthreat).
+    Returns a dictionary of metric names and values.
+    """
+    Frame = frame_num
+
+    # Get teammate coordinates
+    teammate_data = tracking[(tracking['frame'] == Frame) & (tracking['player_id'] == teammate_id)]
+    x_T = float(teammate_data['x'].iloc[0])
+    y_T = float(teammate_data['y'].iloc[0])
+    T = Point(x_T, y_T)
+
+    # Get ball carrier coordinates
+    ball_carrier_data = tracking[(tracking['frame'] == Frame) & (tracking['player_id'] == possession_player_id)]
+    x_B = float(ball_carrier_data['x'].iloc[0])
+    y_B = float(ball_carrier_data['y'].iloc[0])
+    B = Point(x_B, y_B)
+
+    # Find defenders
+    defenders_data = tracking[(tracking['frame'] == Frame) &
+                              (tracking['possession_flag'] == 'OOP') &
+                              (tracking['is_gk'] == False)]
+    coords = defenders_data[['x', 'y']].to_numpy()
+    defenders = [Point(row[0], row[1]) for row in coords]
+
+    # Goal center
+    G = Point(-52.5, 0)
+
+    # 1. Off Ball Run metrics for teammate
+    da = distance(T, G)
+    La = Lf_OBR * da
+    P = point_on_segment(T, G, La)
+    D_closest, dd, _ = find_closest_defender(defenders, P)
+    db = distance(B, P)
+    Theta_a = angle_deg(T, G)
+    Theta_d = angle_deg(D_closest, P)
+    Theta_b = angle_deg(B, P)
+
+    # 2. Passing option metrics for teammate
+    db_po = distance(B, T)
+    Lb = Lf_PO * db_po
+    P_po = point_on_segment(B, T, Lb)
+    D_closest_po, dd_po, _ = find_closest_defender(defenders, P_po)
+    Theta_d_po = angle_deg(D_closest_po, P_po)
+    Theta_b_po = angle_deg(B, P_po)
+
+    # Return all metrics as a dictionary
+    metrics = {
+        'Theta_a_OBR': Theta_a,
+        'Theta_d_OBR': Theta_d,
+        'Theta_b_OBR': Theta_b,
+        'da_OBR': da,
+        'dd_OBR': dd,
+        'db_OBR': db,
+        'Theta_d_PO': Theta_d_po,
+        'Theta_b_PO': Theta_b_po,
+        'dd_PO': dd_po,
+        'db_PO': db_po,
+    }
+
+    return metrics
 
 
 import pandas as pd
@@ -535,3 +764,7 @@ def find_closest_defender(defenders: List[Point], P: Point) -> Tuple[Point, floa
             closest_idx = i
 
     return closest_def, min_dist, closest_idx
+
+
+
+
